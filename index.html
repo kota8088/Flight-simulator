@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>My Chromebook Flight Sim</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #87CEEB; }
+        #info { position: absolute; top: 10px; left: 10px; color: white; font-family: sans-serif; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
+    </style>
+    <!-- 超軽量3Dライブラリ Three.js を読み込み -->
+    <script src="https://cloudflare.com"></script>
+</head>
+<body>
+    <div id="info">
+        操作方法:<br>
+        【↑】機首を下げる（下降）<br>
+        【↓】機首を上げる（上昇）<br>
+        【←】左に傾く / 【→】右に傾く<br>
+        現在の速度: <span id="speed">0</span>
+    </div>
+
+    <script>
+        // --- 1. 画面の基本セットアップ ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // 空の色
+
+        // カメラ（重くならないように描画の限界距離を小さめの2000に設定）
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 光源
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(1, 1, 1).normalize();
+        scene.add(light);
+
+        // --- 2. 地面と障害物の作成 ---
+        // 緑の地面
+        const floorGeo = new THREE.PlaneGeometry(10000, 10000);
+        const floorMat = new THREE.MeshBasicMaterial({ color: 0x228B22 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -50;
+        scene.add(floor);
+
+        // 目印用のビル（重くならないようにシンプルな箱をいくつか配置）
+        for(let i=0; i<50; i++) {
+            const boxGeo = new THREE.BoxGeometry(20, Math.random()*150+50, 20);
+            const boxMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+            const box = new THREE.Mesh(boxGeo, boxMat);
+            box.position.set(Math.random()*2000-1000, boxGeo.parameters.height/2 - 50, Math.random()*2000-1000);
+            scene.add(box);
+        }
+
+        // --- 3. 自分の飛行機を作る ---
+        // 赤い三角錐のシンプルな飛行機（これで超軽くなります）
+        const airplaneGeo = new THREE.ConeGeometry(2, 8, 4);
+        airplaneGeo.rotateX(Math.PI / 2); // 向きの調整
+        const airplaneMat = new THREE.MeshLambertMaterial({ color: 0xFF0000 });
+        const airplane = new THREE.Mesh(airplaneGeo, airplaneMat);
+        scene.add(airplane);
+
+        // 初期位置
+        airplane.position.set(0, 50, 0);
+
+        // --- 4. 飛行の物理パラメーター ---
+        let speed = 2.0;       // 前進する速度
+        let rotationSpeed = 0.03; // 曲がる時の機敏さ
+
+        // キーボード入力の状態
+        const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+        window.addEventListener('keydown', (e) => { if(e.key in keys) keys[e.key] = true; });
+        window.addEventListener('keyup', (e) => { if(e.key in keys) keys[e.key] = false; });
+
+        // --- 5. メインの計算ループ（ここが毎フレーム実行される） ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // キー入力に応じて飛行機の「角度」を変える
+            if (keys.ArrowUp)    airplane.rotateX(rotationSpeed);   // 機首を下げる
+            if (keys.ArrowDown)  airplane.rotateX(-rotationSpeed);  // 機首を上げる
+            if (keys.ArrowLeft)  airplane.rotateZ(rotationSpeed);   // 左にロール
+            if (keys.ArrowRight) airplane.rotateZ(-rotationSpeed);  // 右にロール
+
+            // 【超重要】飛行機が向いている方向に前進させる計算
+            airplane.translateZ(speed);
+
+            // カメラを飛行機の後ろに追従させる
+            const offset = new THREE.Vector3(0, 5, -25); // 飛行機の後ろ上の位置
+            offset.applyQuaternion(airplane.quaternion);
+            camera.position.copy(airplane.position).add(offset);
+            camera.lookAt(airplane.position);
+
+            // 画面の数値を更新
+            document.getElementById('speed').innerText = speed.toFixed(1);
+
+            renderer.render(scene, camera);
+        }
+
+        // 実行！
+        animate();
+
+        // 画面サイズが変わったときの調整
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
