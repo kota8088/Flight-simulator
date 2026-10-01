@@ -1,112 +1,149 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>My Chromebook Flight Sim</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: #87CEEB; }
-        #info { position: absolute; top: 10px; left: 10px; color: white; font-family: sans-serif; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
-    </style>
-    <!-- 超軽量3Dライブラリ Three.js を読み込み -->
-    <script src="https://cloudflare.com"></script>
+<meta charset="utf-8">
+<title>Animate the camera along a path</title>
+<meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.30.0/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.30.0/mapbox-gl.js"></script>
+<style>
+body { margin: 0; padding: 0; }
+#map { position: absolute; top: 0; bottom: 0; width: 100%; }
+</style>
 </head>
 <body>
-    <div id="info">
-        操作方法:<br>
-        【↑】機首を下げる（下降）<br>
-        【↓】機首を上げる（上昇）<br>
-        【←】左に傾く / 【→】右に傾く<br>
-        現在の速度: <span id="speed">0</span>
-    </div>
+<div id="map"></div>
 
-    <script>
-        // --- 1. 画面の基本セットアップ ---
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87CEEB); // 空の色
+<script src="https://docs.mapbox.com/mapbox-gl-js/assets/routes.js"></script>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<script>
+    const map = new mapboxgl.Map({
+        // TO MAKE THE MAP APPEAR YOU MUST
+        // ADD YOUR ACCESS TOKEN FROM
+        // https://account.mapbox.com
+        accessToken: 'YOUR_MAPBOX_ACCESS_TOKEN',
+        container: 'map',
+        zoom: 11.53,
+        center: [6.5615, 46.0598],
+        pitch: 65,
+        bearing: -180,
+        // Choose from Mapbox's core styles, or make your own style with Mapbox Studio
+        style: 'mapbox://styles/mapbox/standard', // style URL
+        interactive: false
+    });
 
-        // カメラ（重くならないように描画の限界距離を小さめの2000に設定）
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
+    // `routes` comes from https://docs.mapbox.com/mapbox-gl-js/assets/routes.js,
+    // which has properties that are in the shape of an array of arrays that correspond
+    //  to the `coordinates` property of a GeoJSON linestring, for example:
+    // [
+    //   [6.56158, 46.05989],
+    //   [6.56913, 46.05679],
+    //   ...
+    // ]
+    // this is the path the camera will look at
+    const targetRoute = routes.target;
+    // this is the path the camera will move along
+    const cameraRoute = routes.camera;
 
-        // 光源
-        const light = new THREE.DirectionalLight(0xffffff, 1);
-        light.position.set(1, 1, 1).normalize();
-        scene.add(light);
-
-        // --- 2. 地面と障害物の作成 ---
-        // 緑の地面
-        const floorGeo = new THREE.PlaneGeometry(10000, 10000);
-        const floorMat = new THREE.MeshBasicMaterial({ color: 0x228B22 });
-        const floor = new THREE.Mesh(floorGeo, floorMat);
-        floor.rotation.x = -Math.PI / 2;
-        floor.position.y = -50;
-        scene.add(floor);
-
-        // 目印用のビル（重くならないようにシンプルな箱をいくつか配置）
-        for(let i=0; i<50; i++) {
-            const boxGeo = new THREE.BoxGeometry(20, Math.random()*150+50, 20);
-            const boxMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
-            const box = new THREE.Mesh(boxGeo, boxMat);
-            box.position.set(Math.random()*2000-1000, boxGeo.parameters.height/2 - 50, Math.random()*2000-1000);
-            scene.add(box);
-        }
-
-        // --- 3. 自分の飛行機を作る ---
-        // 赤い三角錐のシンプルな飛行機（これで超軽くなります）
-        const airplaneGeo = new THREE.ConeGeometry(2, 8, 4);
-        airplaneGeo.rotateX(Math.PI / 2); // 向きの調整
-        const airplaneMat = new THREE.MeshLambertMaterial({ color: 0xFF0000 });
-        const airplane = new THREE.Mesh(airplaneGeo, airplaneMat);
-        scene.add(airplane);
-
-        // 初期位置
-        airplane.position.set(0, 50, 0);
-
-        // --- 4. 飛行の物理パラメーター ---
-        let speed = 2.0;       // 前進する速度
-        let rotationSpeed = 0.03; // 曲がる時の機敏さ
-
-        // キーボード入力の状態
-        const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
-        window.addEventListener('keydown', (e) => { if(e.key in keys) keys[e.key] = true; });
-        window.addEventListener('keyup', (e) => { if(e.key in keys) keys[e.key] = false; });
-
-        // --- 5. メインの計算ループ（ここが毎フレーム実行される） ---
-        function animate() {
-            requestAnimationFrame(animate);
-
-            // キー入力に応じて飛行機の「角度」を変える
-            if (keys.ArrowUp)    airplane.rotateX(rotationSpeed);   // 機首を下げる
-            if (keys.ArrowDown)  airplane.rotateX(-rotationSpeed);  // 機首を上げる
-            if (keys.ArrowLeft)  airplane.rotateZ(rotationSpeed);   // 左にロール
-            if (keys.ArrowRight) airplane.rotateZ(-rotationSpeed);  // 右にロール
-
-            // 【超重要】飛行機が向いている方向に前進させる計算
-            airplane.translateZ(speed);
-
-            // カメラを飛行機の後ろに追従させる
-            const offset = new THREE.Vector3(0, 5, -25); // 飛行機の後ろ上の位置
-            offset.applyQuaternion(airplane.quaternion);
-            camera.position.copy(airplane.position).add(offset);
-            camera.lookAt(airplane.position);
-
-            // 画面の数値を更新
-            document.getElementById('speed').innerText = speed.toFixed(1);
-
-            renderer.render(scene, camera);
-        }
-
-        // 実行！
-        animate();
-
-        // 画面サイズが変わったときの調整
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+    // add terrain, sky, and line layers once the style has loaded
+    map.on('style.load', () => {
+        map.addSource('mapbox-dem', {
+            'type': 'raster-dem',
+            'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+            'tileSize': 512,
+            'maxzoom': 14
         });
-    </script>
+        map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+        map.addSource('trace', {
+            type: 'geojson',
+            data: {
+                'type': 'Feature',
+                'properties': {},
+                'geometry': {
+                    'type': 'LineString',
+                    'coordinates': targetRoute
+                }
+            }
+        });
+        map.addLayer({
+            type: 'line',
+            source: 'trace',
+            id: 'line',
+            paint: {
+                'line-color': 'black',
+                'line-width': 5
+            },
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
+            }
+        });
+    });
+
+    // wait for the terrain and sky to load before starting animation
+    map.on('load', () => {
+        const animationDuration = 80000;
+        const cameraAltitude = 4000;
+        // get the overall distance of each route so we can interpolate along them
+        const routeDistance = turf.lineDistance(turf.lineString(targetRoute));
+        const cameraRouteDistance = turf.lineDistance(
+            turf.lineString(cameraRoute)
+        );
+
+        let start;
+
+        function frame(time) {
+            if (!start) start = time;
+            // phase determines how far through the animation we are
+            const phase = (time - start) / animationDuration;
+
+            // phase is normalized between 0 and 1
+            // when the animation is finished, reset start to loop the animation
+            if (phase > 1) {
+                // wait 1.5 seconds before looping
+                setTimeout(() => {
+                    start = 0.0;
+                }, 1500);
+            }
+
+            // use the phase to get a point that is the appropriate distance along the route
+            // this approach syncs the camera and route positions ensuring they move
+            // at roughly equal rates even if they don't contain the same number of points
+            const alongRoute = turf.along(
+                turf.lineString(targetRoute),
+                routeDistance * phase
+            ).geometry.coordinates;
+
+            const alongCamera = turf.along(
+                turf.lineString(cameraRoute),
+                cameraRouteDistance * phase
+            ).geometry.coordinates;
+
+            const camera = map.getFreeCameraOptions();
+
+            // set the position and altitude of the camera
+            camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
+                {
+                    lng: alongCamera[0],
+                    lat: alongCamera[1]
+                },
+                cameraAltitude
+            );
+
+            // tell the camera to look at a point along the route
+            camera.lookAtPoint({
+                lng: alongRoute[0],
+                lat: alongRoute[1]
+            });
+
+            map.setFreeCameraOptions(camera);
+
+            window.requestAnimationFrame(frame);
+        }
+
+        window.requestAnimationFrame(frame);
+    });
+</script>
+
 </body>
 </html>
